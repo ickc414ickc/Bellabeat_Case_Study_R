@@ -16,10 +16,10 @@ This is a data analysis case study completed as the capstone project for the Goo
 
 ## Key Findings
 
-1.  **Positive Correlation between Steps and Calorie Burn:** A clear positive relationship exists between the number of steps taken per day and the calories burned. However, the benefits show diminishing returns after approximately 20,000 steps.
+1.  **Positive Correlation between Steps and Calorie Burn:** A clear positive relationship exists between the number of steps taken per day and the calories burned. However, the benefits after approximately 20,000 steps slows down.
 2.  **No Correlation Found with Sleep:** The analysis revealed no significant correlation between daily physical activity (steps or calories) and sleep duration or quality in this dataset.
 3.  **Peak Activity Hours:** User activity consistently peaks around midday (12 PM) and in the evening (7 PM).
-4.  **Stable "Walk Efficiency":** The number of active calories burned per step remains remarkably consistent throughout the day, suggesting that the time of day does not impact the effectiveness of a walk.
+4.  **Stable "Walk Efficiency":** The number of active calories burned per step remains consistent throughout the day, suggesting that the time of day does not impact the effectiveness of a walk.
 
 ---
 
