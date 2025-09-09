@@ -1,0 +1,489 @@
+---
+title: "R Notebook"
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_notebook: default
+header-includes:
+  - \usepackage{xeCJK}
+  - \setCJKmainfont{Microsoft YaHei}   % Windows example; alternatives below
+---
+
+# Case study:
+
+## About the Company
+
+Bellabeat, a high-tech manufacturer of health-focused products for women. Bellabeat is a successful small company; they have the potential to become a larger player in the
+global smart device market. Urška Sršen, co-founder and Chief Creative Officer of Bellabeat, believes that analysing smart device fitness data can help unlock new growth opportunities for the company.
+
+## **Questions for the analysis**
+
+-   What are the trends in smart device usage?
+
+-   How could these trends apply to Bellabeat customers?
+
+-   How could these trends help influence Bellabeat's marketing strategy
+
+# **Loading packages**
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(NCmisc)
+library(reader)
+library(readr)
+library(arsenal)
+library(skimr)
+```
+
+## Read File
+
+The idea is that a higher activity leads to higher calories burned, which also leads to better sleep. To prove it, we will need to pull the relevant data and see the correlation between them.
+
+```{r}
+base_path <- "Z:/local_machine_learning/prof/Case Study 2_ How-can-a-wellness-technology-company-play-it-smart/data/raw/mturkfitbit_export_4.12.16-5.12.16"
+
+data_list <- list.files(file.path(base_path),
+           recursive = TRUE,
+           full.names = FALSE)
+
+data_list
+```
+
+As shown, the dataset contains 18 data points. To prove the idea, we will first use the overall daily data to examine the correlation. If a clear pattern is evident, we can utilise the hourly data for more in-depth research.
+
+### Data reading
+
+```{r}
+# reading the data from base_path, 
+dailyActivity_df <- read_csv(file.path(base_path, data_list[1]))
+head(dailyActivity_df)
+```
+
+```{r}
+dailyCalories_df <- read_csv(file.path(base_path, data_list[2]))
+head(dailyCalories_df)
+```
+
+```{r}
+dailySteps_df <- read_csv(file.path(base_path, data_list[4]))
+head(dailySteps_df)
+```
+
+```{r}
+sleepDay_df <- read_csv(file.path(base_path, data_list[17]))
+head(sleepDay_df)
+```
+
+```{r}
+minuteSleep_df <- read_csv(file.path(base_path, data_list[14]))
+head(minuteSleep_df)
+```
+
+### Data Preparation
+
+Now we have all the data we needed and are under observation, we discovered that the data on the dailyActivity dataframe shares the same data with other data frames we have selected. To prove their integrity. we can compare each data frame and see do they hold the same data and at the same time check if there are biases in the dataset that could interfere with the outcome of the data analysis.
+
+```{r}
+all.equal(
+  dailyActivity_df %>% select(Id, ActivityDate, Calories),
+  dailyCalories_df %>% rename(ActivityDate = ActivityDay))
+```
+
+After comparing, we have discovered that there is a name mismatch between dailyActivity to other dataframes; therefore, we have to correct its name and the day format to all dataframes to ensure it matches
+
+```{r}
+dailyActivity_df <- dailyActivity_df %>%
+  rename(ActivityDay = ActivityDate) %>% 
+  mutate(ActivityDay = as.Date(ActivityDay, format = "%m/%d/%Y")) 
+
+dailyCalories_df <- dailyCalories_df %>%
+  mutate(ActivityDay = as.Date(ActivityDay, format = "%m/%d/%Y"))
+
+dailySteps_df <- dailySteps_df %>%
+  rename(TotalSteps = StepTotal) %>%
+  mutate(ActivityDay = as.Date(ActivityDay, format = "%m/%d/%Y"))
+```
+
+```{r}
+all.equal(
+  dailyActivity_df %>% select(Id, ActivityDay, Calories), dailyCalories_df)
+```
+
+```{r}
+all.equal(
+  dailyActivity_df %>% select(Id, ActivityDay, TotalSteps), dailySteps_df)
+```
+
+we have used all.equal to compare the dataset with the selected columns, and as they have returned true, it means the data that each holds is the same; however, the same method is not appropriate for the sleepDay dataframe.
+
+```{r}
+sleepDay_df <- sleepDay_df |> mutate(
+  Day = mdy_hms(SleepDay),
+  time = hms::as_hms(Day)
+  )
+```
+
+Now we have split the time and day within the correct format, now to further understand the data integrity of sleepDay dataframe, we need to compare the MinutesAsleep and TimeInBed, as it should be smaller than, if it is bigger than, it means an extra step is needed to fix it before the analysis starts.
+
+```{r}
+sleepDay_df$result <- ifelse(
+  sleepDay_df$TotalMinutesAsleep <= sleepDay_df$TotalTimeInBed,
+  TRUE,
+  FALSE
+)
+```
+
+we have made an ifelse statement and return TRUE if TotalMinutesAsleep are smaller than TotalTimeInBed, and all of them have returned true, which means this part of the data has no problem as well, now own need to compare the unique ID and day with other data frames
+
+```{r}
+unique_sleepDay_Id <- unique(sleepDay_df$Id)
+unique_dailyActivity_Id <- unique(dailyActivity_df$Id)
+
+setequal(unique_sleepDay_Id, unique_dailyActivity_Id)
+```
+
+```{r}
+unique_sleepDay_day <- unique(sleepDay_df$Day)
+unique_dailyActivity_day <- unique(dailyActivity_df$ActivityDay)
+
+setequal(unique_sleepDay_day, unique_dailyActivity_day)
+```
+
+We have compared the unique ID and days to both datasets, and it has returned FALSE for both, which is reasonable because the user could have switched off the function; therefore mismatch is normal, and we could see there are only 24 unique IDs for the sleepday dataframe, which is lower than 33, although there is a drop on simple size however it should be sufficient for trends exploration purposes, now we have basically have understand the data are good for analysis however we have not yet do the data have contain bias or not, it can be case by one user has more data over other users, to check we can uses Id and date to comfirm the user coverage
+
+```{r}
+activity_key <- dailyActivity_df %>%
+  select(Id, ActivityDay) %>%
+  rename(date = ActivityDay) %>% 
+  distinct()
+
+sleep_key  <- sleepDay_df  %>%
+  select(Id, Day) %>%
+  rename(date = Day) %>% 
+  distinct()
+```
+
+```{r}
+act_not_sleep <- anti_join(activity_key, sleep_key, by = c("Id", "date"))
+sleep_not_act <- anti_join(sleep_key, activity_key, by = c("Id", "date"))
+
+nrow(act_not_sleep); nrow(sleep_not_act)
+head(act_not_sleep); head(sleep_not_act)
+```
+
+```{r}
+summary_df <- tibble(
+  dataset = c("activity_key", "sleep_key", "act_not_sleep", "sleep_not_act"),
+  count =c(nrow(activity_key), nrow(sleep_key), nrow(act_not_sleep), nrow(sleep_not_act) )
+)
+```
+
+```{r}
+ggplot(summary_df, aes(x = dataset, y = count, fill = dataset)) +
+  geom_col() +
+  labs(x = "Dataset", y = "Row Count", title = "Comparison of Dataset Sizes") +
+  theme_minimal()
+```
+
+From the Comparison of Datasets Sizes, there are 940 activity_key, 530 act_not_sleep, 410 sleep_key and 0 for sleep_not_act, each of them has explain the user activity behavior:
+
+-   activity_key: represents the total number of records with daily activity
+
+-   sleep_key: represents the total number of records with sleep activity
+
+-   act_not_sleep: represents the total number of records that have daily activity but are missing sleep activity
+
+-   sleep_not_act: represents the total number of records that have sleep activity but are missing daily activity
+
+This has shown that, because sleep_not_act has 0 means users who have sleep records also have daily activity, which means to study the relationship between activity and sleep, we will not need to do any extra data processing; however, it also means we only have 410 data points that are available to study from. Now, since we understand not all user has sleep records, we can look at the coverage of each user to better understand which user has higher and lower cover rate.
+
+```{r}
+act_days   <- activity_key |> dplyr::count(Id, name = "n_act_days")
+sleep_days <- sleep_key    |> dplyr::count(Id, name = "n_sleep_days")
+
+coverage <- dplyr::left_join(act_days, sleep_days, by = "Id") |>
+  dplyr::mutate(n_sleep_days = tidyr::replace_na(n_sleep_days, 0),
+                coverage = n_sleep_days / n_act_days)
+```
+
+```{r}
+coverage_count <- coverage$Id <- match(coverage$Id, unique(coverage$Id)) # this will replace the Id to the num right away
+```
+
+```{r}
+coverage_count <- match(coverage$Id, unique(coverage$Id)) 
+```
+
+```{r}
+coverage <- coverage %>%
+  add_column(coverage_count) %>%
+  rename(Id_num = coverage_count)
+```
+
+```{r}
+ggplot(coverage, aes(x = reorder(factor(Id_num), coverage), y = coverage)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(x = "User (Id_num)", y = "Coverage", title = "Sleep Coverage per User") +
+  theme_minimal()
+```
+
+We have a total of 33 users, but only 3 users have up to 100% coverage, and up to 9 users have 0% coverage. This could represent a potential problem with the products themselves, as they may be uncomfortable, or the user may not understand the benefits.
+
+All data preparation is complete, and we have successfully built a well-developed understanding of the data. We can start to discover potential trends between activity and sleep
+
+## Analysis
+
+### Step vs Calories
+
+```{r}
+ggplot(dailyActivity_df, aes(x = TotalSteps, y = Calories)) +geom_point(alpha=0.3) + 
+  geom_smooth() + 
+  theme_classic() +
+  labs(x = "Total Step", y = "Calories Burn", title = "Step vs Calories (Per Day)")
+```
+
+```{r}
+cor(dailyActivity_df$TotalSteps, dailyActivity_df$Calories, use="complete.obs")
+```
+
+Step vs Calories has shown a slight 0.59 positive correlation between the total steps and calories burned. We can see that between 0 to 20k has a strong growth; however, once it passes 20k, the growth has slowed down, which shows human calorie burn has a limit.
+
+```{r}
+dailyActivity_df <- dailyActivity_df %>%
+  mutate(step_group = case_when(
+    TotalSteps < 10000 ~ "<10k",
+    TotalSteps >= 10000 & TotalSteps < 15000 ~ "10k-15k",
+    TotalSteps >= 15000 & TotalSteps < 20000 ~ "15k-20k",
+    TotalSteps >= 20000 ~ ">20k"
+  ))
+```
+
+```{r}
+avg_calories <- dailyActivity_df %>%
+  group_by(step_group) %>%
+  summarise(mean_calories = mean(Calories, na.rm = TRUE),
+            n = n())
+```
+
+```{r}
+avg_calories <- avg_calories%>%
+  mutate(step_group = fct_reorder(step_group, mean_calories))
+
+print(avg_calories)
+```
+
+```{r}
+ggplot(avg_calories, aes(x = step_group, y = mean_calories)) +
+  geom_col(fill = "steelblue") +
+  theme_classic() +
+  labs(title = "Average Calories by Step Group",
+       x = "Step Group", y = "Average Calories Burned")
+
+```
+
+Now that we have found that there is a correlation between steps and calories, we can now be ready to look into Step vs Sleep.
+
+### Step vs Sleep
+
+```{r}
+daily_Sleep_Step_activity_merged_df <- inner_join(dailyActivity_df, sleepDay_df, by = c("Id" = "Id", "ActivityDay" = "Day"))
+```
+
+```{r}
+ggplot(daily_Sleep_Step_activity_merged_df, aes(x = TotalSteps, y = TotalMinutesAsleep)) + geom_point(alpha=0.3) +
+  geom_smooth() +
+  theme_classic() +
+  labs(title = "Sleep vs Step (Per Day)", x = "Step", y = "Sleep", main = "Step vs Sleep")
+```
+
+```{r}
+cor(daily_Sleep_Step_activity_merged_df$TotalSteps, daily_Sleep_Step_activity_merged_df$TotalMinutesAsleep, use = "complete.obs")
+```
+
+Now, we can see the correlation is at -0.1868665, which means it does not correlate to even a negative correlation, which represents that having a higher step does not mean you will have a longer sleep, however, it can be misleading because it can be done by confounders, before further investigation between step and sleep, we can use Calories instand as it is a end product of active activities, that could bring a clearer view between do higher more active bring better and longer sleep.
+
+### Calories vs Sleep
+
+```{r}
+ggplot(daily_Sleep_Step_activity_merged_df, aes(x = Calories, y = TotalMinutesAsleep)) + geom_point(alpha=0.3) +
+  geom_smooth() +
+  theme_classic() +
+  labs(x = "Calories", y = "Sleep", title = "Sleep vs Calories (Per Day)")
+```
+
+```{r}
+cor(daily_Sleep_Step_activity_merged_df$Calories, daily_Sleep_Step_activity_merged_df$TotalMinutesAsleep, use = "complete.obs")
+```
+
+Now it has been shown that the sleep time does not correlate with the activities and calories burned, to continue with the assumption, we should use another method, such as sleep efficiency, rather then total sleep time.
+
+### Step vs sleep efficiency
+
+```{r}
+daily_Sleep_Step_activity_merged_df <- daily_Sleep_Step_activity_merged_df %>% 
+  mutate(Sleep_efficiency = TotalMinutesAsleep / TotalTimeInBed)
+```
+
+```{r}
+ggplot(daily_Sleep_Step_activity_merged_df, aes(x = TotalSteps, y = Sleep_efficiency)) + geom_point(alpha=0.3) +
+  geom_smooth() +
+  theme_classic() +
+  labs(x = "step", y = "Sleep Efficiency", title = "TotalSteps vs Sleep Efficiency")
+```
+
+```{r}
+cor(daily_Sleep_Step_activity_merged_df$TotalSteps, daily_Sleep_Step_activity_merged_df$Sleep_efficiency, use = "complete.obs")
+```
+
+Now, with further attempts and exploration, we have discovered that day activity will not affect the sleep efficiency and time. For a more detailed understanding and to develop a strategy for the product, a more detailed discovery into hourly data is needed for the relationship between calories and steps, which we have proven is correlated.
+
+## Hourly data analysis
+
+```{r}
+data_list
+```
+
+### Hourly data preparation
+
+```{r}
+hourlySteps_df <- read_csv(file.path(base_path, data_list[8]))
+```
+
+```{r}
+hourlyCalories_df <- read_csv(file.path(base_path, data_list[6]))
+```
+
+```{r}
+hourlySteps_df <- hourlySteps_df |> mutate(
+  ActivityHour = mdy_hms(ActivityHour),
+  Day = as_date(ActivityHour),
+  Time = hms::as_hms(ActivityHour)
+  )
+
+hourlyCalories_df <- hourlyCalories_df |> mutate(
+  ActivityHour = mdy_hms(ActivityHour),
+  Day = as_date(ActivityHour),
+  Time = hms::as_hms(ActivityHour)
+  )
+```
+
+```{r}
+hourlySteps_key <- hourlySteps_df %>%
+  select(Id, ActivityHour, Day, Time)
+
+hourlyCalories_key <- hourlyCalories_df %>%
+  select(Id, ActivityHour, Day, Time)
+```
+
+```{r}
+steps_not_Calories <- anti_join(hourlySteps_key, hourlyCalories_key)
+Calories_not_steps <- anti_join(hourlyCalories_key, hourlySteps_key)
+
+nrow(steps_not_Calories); nrow(Calories_not_steps)
+head(steps_not_Calories); head(Calories_not_steps)
+```
+
+```{r}
+hourly_Calories_Steps_merged <- inner_join(hourlySteps_df, hourlyCalories_df)
+```
+
+we have done the same preparation steps as we have done before for the merged data to be ready for clean and reliable analysis. therefore, the explanation will be skipped.
+
+```{r}
+dailySteps_Activity <- hourly_Calories_Steps_merged %>%
+  select(StepTotal, Time, Calories)
+```
+
+```{r}
+dailySteps_Activity_Analysis <- dailySteps_Activity %>%
+  select(StepTotal, Time, Calories) %>%
+  group_by(Time) %>%
+  summarise(
+    mean_steps = mean(StepTotal, na.rm = TRUE)
+  )
+```
+
+```{r}
+ggplot(dailySteps_Activity_Analysis, aes(x = Time, y = mean_steps)) + geom_col() +
+  theme_classic()
+```
+
+it shows the average walk peaks around 12 am the first times which could mean people went to have lunch during work, then, after it peaks again at 7 pm, which could assume users go home after work go or walk after work, For suggestion, we could push a suggestion around 6 for the user to go have a walk after a long day, and suggest an activity while walking. To develop a further suggestion, we can look into the average steps efficiency during the day, to discover the correlation between time and calories burn.
+
+```{r}
+baseline <- hourly_Calories_Steps_merged  %>%
+  filter(StepTotal == 0) %>%
+  summarise(baseline = median(Calories, na.rm = TRUE)) %>%
+  pull(baseline)
+```
+
+To get a more accurate result, we will first determine the baseline to detect the base calories for whom is not moving, then that number will be deducted from the calories to represent the fully from activity burn.
+
+```{r}
+thr <- 50000L
+
+hourly_sum <- hourly_Calories_Steps_merged %>%
+  mutate(
+    hour = hour(Time),
+    active_cal = pmax(Calories - baseline, 0)
+  ) %>%
+  group_by(hour) %>%
+  summarise(
+    mean_steps       = mean(StepTotal,        na.rm = TRUE),
+    total_steps      = sum(StepTotal,         na.rm = TRUE),
+    total_active_cal = sum(active_cal,        na.rm = TRUE),
+    cal_per_step     = ifelse(total_steps > 0, total_active_cal / total_steps, NA_real_)
+  ) %>%
+
+  mutate(cal_per_step = ifelse(total_steps < thr, NA_real_, cal_per_step))
+```
+
+```{r}
+ggplot(hourly_sum, aes(x = hour)) +
+  geom_col(aes(y = mean_steps), fill = "steelblue") +
+  geom_line(aes(y = cal_per_step * 1000), colour = "red", linewidth = 1) +
+  scale_y_continuous(name = "Average Steps",sec.axis = sec_axis(~ . / 1000, name = "Calories per Step (active)")) +
+  
+  labs(
+    title = "Hourly Activity: Average Steps & Active Calories per Step",
+    subtitle = paste("Hours with total steps <", thr, "hidden due to insufficient activity"),
+    x = "Hour of day") +
+  
+  theme_classic() +
+  theme(
+    axis.title.y.right = element_text(color = "red"),
+    axis.text.y.right  = element_text(color = "red")
+  )
+```
+
+The result of comparing the hourly activity with active calories per step has shown that, regardless the user takes a walk in the morning or at night, each steps they takes burns the same number of calories, therefore the product can remind the user to take a walk at any time. With this, we have enough information to provide a detailed suggestion and trend discovery.
+
+## Suggestion
+
+### Finding
+
+We have discovered there is a positive correlation between Steps and Calories burned, which means the more steps the user takes, the more likely they are to burn more calories; however, there is a limit. According to the Step vs Calories plot, the limit seems to at around 20k steps. Once it is passed, the increase will slow down and become less significant.
+
+However, for Step vs Sleep / Sleep Efficiency and Calories vs Sleep have shown low to negative correlation, they represent that the Steps and calories the users take during the day will not affect the sleep time, and sleep quality (measured by the time taken to fall asleep). Furthermore, it shown that no matter the time, the users have burned the same amount of calories.
+
+For user behaviour, we have found our users will peak around 12 pm and 7 pm, in step activity.
+
+### Actionable suggestion
+
+Based on user behaviour, we suggest that around lunch time and when they get off work, pushing a notification for walking activity will be more suitable; however, for new users or have who have low activity recorded, we can suggest that walking will increase calorie burn for health and no matter the time, for better user engagement.
+
+Furthermore, we can set a challenge for users, for example, every month 15k steps with a cheaper subscription or other service Bellabeat provide.
+
+### weakness
+
+This data has a few weaknesses. First, the data only contains 33 people and has some missing data in other fields. Second, it has only records between April to May. Third, we have no data related to gender and the area from which this data was collected. Fourth, this data has a selective bias; the users on the apps already have a better health mindset. Lastly, we have no relevant data about diet, stress level, which these also highly effect on the result; this combination of factors has made this data only representable for a very limited people within a very short period, as different times of the year have different behaviours that can lead to different results, the recommendations that have been made, at most, it is just an insight, further research will need to conduct for more reliable result.
+
+### Future Improvements
+
+To improve on the weakness, a longer and larger data size is needed, ideally at least half a year of records that contain users gender, location, stress level, and age. With this data, we will be able to provide a more reliable conclusion and detailed actionable suggestions.
