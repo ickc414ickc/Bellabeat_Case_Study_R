@@ -43,7 +43,7 @@ library(skimr)
 The idea is that a higher activity leads to higher calories burned, which also leads to better sleep. To prove it, we will need to pull the relevant data and see the correlation between them.
 
 ```{r}
-base_path <- "/data/raw/mturkfitbit_export_4.12.16-5.12.16"
+base_path <- "mturkfitbit_export_4.12.16-5.12.16"
 
 data_list <- list.files(file.path(base_path),
            recursive = TRUE,
